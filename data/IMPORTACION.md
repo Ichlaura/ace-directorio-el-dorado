@@ -1,0 +1,3 @@
+El Excel de Google Forms se convirtió a `ACE_Importacion_Privada.sql`, entregado como descarga separada. Contiene datos de contacto, nombres y solicitudes privadas. NO subir a GitHub, Vercel ni a la carpeta `public`.
+
+Para importar: primero ejecutar `supabase_schema.sql` y después `ACE_Importacion_Privada.sql` en el SQL Editor de Supabase. Las 23 inscripciones quedan `pending`. Se importan categorías tal como fueron contestadas, para que el administrador pueda normalizarlas. Los enlaces de Google Drive se conservan en `image_url`, pero no funcionan necesariamente como imagen directa: deberán reemplazarse con fotografías subidas al bucket desde el panel.

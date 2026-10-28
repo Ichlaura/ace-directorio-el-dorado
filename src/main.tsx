@@ -1,5 +1,4 @@
-import React,{useEffect,useMemo,useState} from 'react';
-import {createRoot} from 'react-dom/client';
+import React,{useEffect,useMemo,useState,useRef} from 'react';import {createRoot} from 'react-dom/client';
 import {Search,MapPin,ArrowRight,Menu,X,Users,TrendingUp,Sprout,Instagram,Facebook,MessageCircle,ChevronLeft,Lock,Plus,Globe,Share2,LogOut,Upload,Check,Trash2,Shield,Image as ImageIcon} from 'lucide-react';
 import type {User} from '@supabase/supabase-js';
 import {db,configured,defaults,safeUrl,instagramUrl,whatsappUrl} from './lib';
@@ -38,6 +37,14 @@ function App(){
  const [page,setPage]=useState<Page>(()=>location.hash.startsWith('#/admin')?'admin':location.hash.startsWith('#/registro')?'register':'home');
  const [items,setItems]=useState<Business[]>([]);
  const [cats,setCats]=useState<string[]>(defaults);
+ const categoryRowRef = useRef<HTMLDivElement>(null);
+
+const scrollCategories = (direction: number) => {
+  categoryRowRef.current?.scrollBy({
+    left: direction * 450,
+    behavior: 'smooth'
+  });
+};
  const [selected,setSelected]=useState<Business|null>(null);
  const [q,setQ]=useState('');
  const [cat,setCat]=useState('');
@@ -252,7 +259,53 @@ const setStatus = async (
     const {error}=await db.auth.signInWithPassword({email:authEmail,password:authPassword});setLoading(false);setNotice(error?error.message:'Sesión iniciada. Comprobando permisos...')};
  const addCategory=async()=>{if(!db||!newCat.trim())return;
     const {error}=await db.from('categories').insert({name:newCat.trim(),sort_order:cats.length});if(error)setNotice(error.message);else{setNewCat('');setNotice('Categoría creada');await loadPublic()}};
- const addAdmin=async()=>{if(!db||role!=='superadmin')return;
+ 
+ 
+const deleteCategory = async (name: string) => {
+  if (!db || !role) return;
+
+  const confirmed = window.confirm(
+    `¿Seguro que deseas eliminar la categoría "${name}"?`
+  );
+
+  if (!confirmed) return;
+
+  setLoading(true);
+  setNotice('');
+
+  try {
+    const { count, error: countError } = await db
+      .from('businesses')
+      .select('id', { count: 'exact', head: true })
+      .eq('category', name);
+
+    if (countError) throw countError;
+
+    if ((count ?? 0) > 0) {
+      setNotice(
+        `No puedes eliminar "${name}" porque tiene ${count} emprendimiento(s) asociado(s).`
+      );
+      return;
+    }
+
+    const { error } = await db
+      .from('categories')
+      .delete()
+      .eq('name', name);
+
+    if (error) throw error;
+
+    setCats(previous => previous.filter(c => c !== name));
+    setNotice(`Categoría "${name}" eliminada correctamente.`);
+  } catch (err) {
+    setNotice('No se pudo eliminar: ' + errorText(err));
+  } finally {
+    setLoading(false);
+  }
+};
+
+ 
+    const addAdmin=async()=>{if(!db||role!=='superadmin')return;
     const {error}=await db.rpc('grant_admin_by_email',{target_email:inviteEmail.trim(),target_role:inviteRole});setNotice(error?error.message:'Permisos actualizados. La persona debe tener una cuenta creada en Supabase Auth.');if(!error)setInviteEmail('')};
  const share=async(b:Business)=>{const url=`${location.origin}${location.pathname}#/negocio/${b.id}`;try{if(navigator.share)await navigator.share({title:b.name,url});else{await navigator.clipboard.writeText(url);setNotice('Enlace copiado')}}catch{}};
  useEffect(()=>{if(!items.length)return;
@@ -262,13 +315,78 @@ const setStatus = async (
  const businessForm=(admin=false)=><form className="ace-form" onSubmit={e=>void submit(e,admin)}><div className="form-grid">{field('Nombre del negocio','name',true)}{field('Categoría','category',true,'select')}{field('Nombre del dueño o responsable','owner_name')}{field('WhatsApp de contacto','whatsapp',true)}{field('Ciudad o municipio','city')}{field('Dirección (o indica si es virtual)','address')}{field('Instagram (usuario o enlace)','instagram')}{field('Facebook (enlace)','facebook')}{field('Sitio web (enlace)','website')}{field('Descripción de productos o servicios','description',false,'textarea')}{field('¿Cómo deseas que la Academia te ayude? (respuesta privada)','private_support_request',false,'textarea')}<label>Logotipo o fotografía (máximo 5 MB)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>setFile(e.target.files?.[0]||null)}/></label>{admin&&field('URL de imagen existente','image_url')}</div>{admin&&<div className="form-grid"><label>Estado<select value={form.status} onChange={e=>setForm({...form,status:e.target.value as Business['status']})}><option value="pending">Pendiente</option><option value="approved">Aprobado</option><option value="rejected">Rechazado</option></select></label><label className="check"><input type="checkbox" checked={form.featured} onChange={e=>setForm({...form,featured:e.target.checked})}/> Emprendimiento destacado</label></div>}{!admin&&<p className="privacy-note">La información de contacto del negocio podrá mostrarse públicamente si se aprueba. Tu respuesta sobre el apoyo de la Academia será privada. Al enviar aceptas que revisemos estos datos para el directorio.</p>}<button className="primary-btn" disabled={loading||!configured} type="submit"><Upload size={18}/>{loading?'Guardando...':admin?'Guardar emprendimiento':'Enviar emprendimiento para revisión'}</button></form>;
  return <><header className="site-header"><div className="header-inner"><button className="brand" onClick={()=>go('home')}><span className="brand-mark">▥</span><span className="brand-name">Academia para la<br/>Creación de Empresas</span><span className="chapter">Capítulo El Dorado</span></button><nav className={menu?'nav open':'nav'}><button className={page==='home'?'current':''} onClick={()=>go('home')}>Inicio</button><button className={page==='directory'?'current':''} onClick={()=>go('directory')}>Directorio</button><button className={page==='register'?'current':''} onClick={()=>go('register')}>Registra tu emprendimiento</button><button onClick={()=>go('about')}>Sobre la Academia</button><button className="admin-link" onClick={()=>go('admin')}>Administración</button></nav><button className="mobile-menu" aria-label="Abrir menú" onClick={()=>setMenu(!menu)}>{menu?<X/>:<Menu/>}</button></div></header>
  {!configured&&<div className="config-alert">Proyecto preparado: configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY para activar los datos y formularios.</div>}
- {page==='home'&&<><section className="hero"><div className="hero-photo"/><div className="hero-curve"/><div className="hero-content"><p className="eyebrow">DIRECTORIO DE EMPRENDIMIENTOS</p><h1>Conectamos ideas,<br/><em>emprendimientos</em><br/>y oportunidades.</h1><p>Descubre los productos y servicios de los emprendedores del Capítulo El Dorado y apoya el talento de nuestra comunidad.</p></div><div className="search-panel"><label className="search-field"><Search/><input placeholder="¿Qué producto o servicio buscas?" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&go('directory')}/></label><select value={cat} onChange={e=>setCat(e.target.value)}><option value="">Todas las categorías</option>{cats.map(c=><option key={c}>{c}</option>)}</select><select value={city} onChange={e=>setCity(e.target.value)}><option value="">Todas las ciudades</option>{cities.map(c=><option key={c}>{c}</option>)}</select><button className="primary-btn" onClick={()=>go('directory')}><Search size={20}/> Buscar</button></div></section><section className="category-strip"><div className="category-row">{cats.map((c,i)=><button className="category-tile" key={c} onClick={()=>{setCat(c);go('directory')}}><span>{icons[i%icons.length]}</span><small>{c}</small></button>)}</div></section><section className="featured wrap"><div className="section-heading"><h2>Emprendimientos destacados</h2><span className="gold-line"/><button onClick={()=>go('directory')}>Ver todos <ArrowRight size={18}/></button></div><div className="card-grid">{items.filter(b=>b.featured).slice(0,4).map(card)}</div>{!items.some(b=>b.featured)&&<div className="empty">Pronto encontrarás aquí los emprendimientos destacados.</div>}<div className="register-cta"><div><h2>¿Tienes un emprendimiento?</h2><p>Comparte tu negocio con nuestra comunidad.</p></div><button className="primary-btn" onClick={()=>go('register')}>Registrar mi negocio <ArrowRight size={18}/></button>
+ {page==='home'&&<><section className="hero"><div className="hero-photo"/><div className="hero-curve"/><div className="hero-content"><p className="eyebrow">DIRECTORIO DE EMPRENDIMIENTOS</p><h1>Conectamos ideas,<br/><em>emprendimientos</em><br/>y oportunidades.</h1><p>Descubre los productos y servicios de los emprendedores del Capítulo El Dorado y apoya el talento de nuestra comunidad.</p></div><div className="search-panel"><label className="search-field"><Search/><input placeholder="¿Qué producto o servicio buscas?" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&go('directory')}/></label><select value={cat} onChange={e=>setCat(e.target.value)}><option value="">Todas las categorías</option>{cats.map(c=><option key={c}>{c}</option>)}</select><select value={city} onChange={e=>setCity(e.target.value)}><option value="">Todas las ciudades</option>{cities.map(c=><option key={c}>{c}</option>)}</select><button className="primary-btn" onClick={()=>go('directory')}><Search size={20}/> Buscar</button></div></section>
+ 
+
+ 
+<section className="category-strip">
+  <div className="category-navigation">
+
+    <button
+      type="button"
+      className="category-nav-arrow"
+      aria-label="Ver categorías anteriores"
+      onClick={() => scrollCategories(-1)}
+    >
+      <ChevronLeft size={22}/>
+    </button>
+
+    <div className="category-row" ref={categoryRowRef}>
+      {cats.map((c, i) => (
+        <button
+          className="category-tile"
+          key={c}
+          onClick={() => {
+            setCat(c);
+            go('directory');
+          }}
+        >
+          <span>{icons[i % icons.length]}</span>
+          <small>{c}</small>
+        </button>
+      ))}
+    </div>
+
+    <button
+      type="button"
+      className="category-nav-arrow"
+      aria-label="Ver más categorías"
+      onClick={() => scrollCategories(1)}
+    >
+      <ArrowRight size={22}/>
+    </button>
+
+  </div>
+</section>
+
+        
+        <section className="featured wrap"><div className="section-heading"><h2>Emprendimientos destacados</h2><span className="gold-line"/><button onClick={()=>go('directory')}>Ver todos <ArrowRight size={18}/></button></div><div className="card-grid">{items.filter(b=>b.featured).slice(0,4).map(card)}</div>{!items.some(b=>b.featured)&&<div className="empty">Pronto encontrarás aquí los emprendimientos destacados.</div>}<div className="register-cta"><div><h2>¿Tienes un emprendimiento?</h2><p>Comparte tu negocio con nuestra comunidad.</p></div><button className="primary-btn" onClick={()=>go('register')}>Registrar mi negocio <ArrowRight size={18}/></button>
  </div></section><section className="benefits"><div className="wrap benefits-inner"><blockquote>“Grandes oportunidades nacen cuando una comunidad apoya a sus emprendedores.”</blockquote><div><Users color="#E82D3B"/><strong>Conecta</strong><span>Encuentra productos y servicios locales.</span></div><div><TrendingUp color="#E6BB33"/><strong>Apoya</strong><span>Impulsa el talento de nuestra comunidad.</span></div><div><Sprout color="#E82D3B"/><strong>Crece juntos</strong><span>Más oportunidades para todos.</span></div></div></section></>}
  {page==='directory'&&<main className="wrap inner-page"><p className="eyebrow">EXPLORA NUESTRA COMUNIDAD</p><h1>Directorio de emprendimientos</h1><p>Descubre los negocios que ya han sido aprobados.</p><div className="filters"><label><Search size={20}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar emprendimientos..."/></label><select value={cat} onChange={e=>setCat(e.target.value)}><option value="">Todas las categorías</option>{cats.map(c=><option key={c}>{c}</option>)}</select><select value={city} onChange={e=>setCity(e.target.value)}><option value="">Todas las ciudades</option>{cities.map(c=><option key={c}>{c}</option>)}</select><button onClick={()=>{setQ('');setCat('');setCity('')}}>Limpiar filtros</button></div><p className="result-count">{filtered.length} emprendimiento(s)</p><div className="card-grid">{filtered.map(card)}</div>{filtered.length===0&&<div className="empty">No hay emprendimientos publicados con estos filtros.</div>}</main>}
  {page==='detail'&&selected&&<main className="wrap inner-page"><button className="back" onClick={()=>go('directory')}><ChevronLeft size={18}/> Volver al directorio</button><div className="detail-layout"><img className="detail-photo" src={safeUrl(selected.image_url)||imageFallback} alt={selected.name}/><div className="detail-text"><p className="eyebrow">{selected.category}</p><h1>{selected.name}</h1><p><MapPin size={17} className="inline-icon"/> {selected.city||'Virtual'}</p><p>{selected.description||'Conoce este emprendimiento de nuestra comunidad.'}</p><div className="detail-actions">{whatsappUrl(selected.whatsapp)&&<a className="primary-btn" target="_blank" rel="noopener noreferrer" href={whatsappUrl(selected.whatsapp)}><MessageCircle size={18}/> WhatsApp</a>}{instagramUrl(selected.instagram)&&<a href={instagramUrl(selected.instagram)} target="_blank" rel="noopener noreferrer"><Instagram/> Instagram</a>}{safeUrl(selected.facebook)&&<a href={safeUrl(selected.facebook)} target="_blank" rel="noopener noreferrer"><Facebook/> Facebook</a>}{safeUrl(selected.website)&&<a href={safeUrl(selected.website)} target="_blank" rel="noopener noreferrer"><Globe/> Sitio web</a>}<button onClick={()=>void share(selected)}><Share2 size={18}/> Compartir</button></div></div></div></main>}
  {page==='register'&&<main className="wrap inner-page"><p className="eyebrow">HAZ PARTE DE NUESTRA COMUNIDAD</p><h1>Registra tu emprendimiento</h1><p>Completa tus datos. Nuestro equipo revisará la información antes de publicar tu negocio.</p><div className="registration-panel">{businessForm(false)}</div></main>}
  {page==='about'&&<main className="wrap inner-page about"><p className="eyebrow">CAPÍTULO EL DORADO</p><h1>Emprender también es construir comunidad.</h1><p>Este directorio reúne los emprendimientos aprobados por la administración del Capítulo El Dorado de la Academia para la Creación de Empresas.</p><button className="primary-btn" onClick={()=>go('directory')}>Explorar directorio <ArrowRight size={18}/></button></main>}
- {page==='admin'&&<main className="wrap inner-page admin"><div className="admin-title"><div><p className="eyebrow">ÁREA PRIVADA · ACE EL DORADO</p><h1>Panel de administración</h1><p>Revisa y aprueba los negocios antes de publicarlos.</p></div><Lock color="#E82D3B" size={32}/></div>{!user?<div className="auth-panel"><h2>Iniciar sesión</h2><p>Acceso exclusivo para administradores autorizados.</p><form className="ace-form" onSubmit={e=>void login(e)}><label>Correo electrónico<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} required/></label><label>Contraseña<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} required/></label><button className="primary-btn" type="submit" disabled={loading||!configured}>Entrar</button></form></div>:!role?<div className="auth-panel"><h2>Sin permisos administrativos</h2><p>La cuenta {user.email} existe, pero no tiene permiso de administrador. Solicita acceso al superadministrador.</p><button onClick={()=>void db?.auth.signOut()}>Cerrar sesión</button></div>:<><div className="admin-toolbar"><span><Shield size={18}/> {user.email} · {role==='superadmin'?'Superadministrador':'Administrador'}</span><button onClick={()=>void db?.auth.signOut()}><LogOut size={16}/> Salir</button></div><div className="admin-stats"><div><strong>{adminItems.filter(b=>b.status==='pending').length}</strong><span>Pendientes</span></div><div><strong>{adminItems.filter(b=>b.status==='approved').length}</strong><span>Publicados</span></div><div><strong>{adminItems.filter(b=>b.status==='rejected').length}</strong><span>Rechazados</span></div></div><div className="admin-tabs"><button className={tab==='pending'?'selected':''} onClick={()=>setTab('pending')}>Pendientes</button><button className={tab==='approved'?'selected':''} onClick={()=>setTab('approved')}>Publicados</button><button className={tab==='rejected'?'selected':''} onClick={()=>setTab('rejected')}>Rechazados</button><button className={tab==='new'?'selected':''} onClick={()=>{setForm(empty);setEditing(null);setTab('new')}}><Plus size={16}/> Nuevo / editar</button><button className={tab==='categories'?'selected':''} onClick={()=>setTab('categories')}>Categorías</button>{role==='superadmin'&&<button className={tab==='users'?'selected':''} onClick={()=>setTab('users')}>Administradores</button>}</div>{['pending','approved','rejected'].includes(tab)&&<div className="admin-list">{adminItems.filter(b=>b.status===tab).map(b=><div className="admin-row admin-row-expanded" key={b.id}><img src={privateImages[b.id] || safeUrl(b.image_url) || imageFallback} alt={b.name} onError={e => { e.currentTarget.src = imageFallback; }}/><div className="admin-row-main"><strong>{b.name}</strong><small>{b.category} · {b.city||'Virtual'}</small><small>Responsable: {b.owner_name||'Sin indicar'} · WhatsApp: {b.whatsapp||'Sin indicar'}</small><small>Dirección: {b.address||'Sin indicar'}</small>{b.private_support_request&&<p className="private-data"><Lock size={13}/> Solicitud privada: {b.private_support_request}</p>}</div><div className="admin-actions"><button onClick={()=>edit(b)}>Editar</button>{b.status!=='approved'&&<button className="approve" disabled={loading} onClick={()=>void setStatus(b,'approved')}><Check size={16}/> Aprobar</button>}{b.status!=='pending'&&<button disabled={loading} onClick={()=>void setStatus(b,'pending')}>Pendiente</button>}{b.status!=='rejected'&&<button className="reject" disabled={loading} onClick={()=>void setStatus(b,'rejected')}><X size={16}/> Rechazar</button>}</div></div>)}{!adminItems.some(b=>b.status===tab)&&<div className="empty">No hay negocios en esta sección.</div>}</div>}{tab==='new'&&<div className="registration-panel"><h2>{editing?'Editar negocio':'Crear negocio'}</h2>{businessForm(true)}</div>}{tab==='categories'&&<div className="registration-panel"><h2>Categorías disponibles</h2><div className="category-admin-list">{cats.map(c=><span key={c}>{c}</span>)}</div><label>Nueva categoría<input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Nombre de la categoría"/></label><button className="primary-btn" onClick={()=>void addCategory()}>Agregar categoría</button></div>}{tab==='users'&&role==='superadmin'&&<div className="registration-panel"><h2>Autorizar administradores</h2><p>La persona debe existir previamente en Supabase Authentication. Esta acción solo puede realizarla un superadministrador.</p><label>Correo del usuario<input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)}/></label><label>Rol<select value={inviteRole} onChange={e=>setInviteRole(e.target.value as 'admin'|'superadmin')}><option value="admin">Administrador</option><option value="superadmin">Superadministrador</option></select></label><button className="primary-btn" onClick={()=>void addAdmin()}>Conceder acceso</button></div>}</>}</main>}
+ {page==='admin'&&<main className="wrap inner-page admin"><div className="admin-title"><div><p className="eyebrow">ÁREA PRIVADA · ACE EL DORADO</p><h1>Panel de administración</h1><p>Revisa y aprueba los negocios antes de publicarlos.</p></div><Lock color="#E82D3B" size={32}/></div>{!user?<div className="auth-panel"><h2>Iniciar sesión</h2><p>Acceso exclusivo para administradores autorizados.</p><form className="ace-form" onSubmit={e=>void login(e)}><label>Correo electrónico<input type="email" value={authEmail} onChange={e=>setAuthEmail(e.target.value)} required/></label><label>Contraseña<input type="password" value={authPassword} onChange={e=>setAuthPassword(e.target.value)} required/></label><button className="primary-btn" type="submit" disabled={loading||!configured}>Entrar</button></form></div>:!role?<div className="auth-panel"><h2>Sin permisos administrativos</h2><p>La cuenta {user.email} existe, pero no tiene permiso de administrador. Solicita acceso al superadministrador.</p><button onClick={()=>void db?.auth.signOut()}>Cerrar sesión</button></div>:<><div className="admin-toolbar"><span><Shield size={18}/> {user.email} · {role==='superadmin'?'Superadministrador':'Administrador'}</span><button onClick={()=>void db?.auth.signOut()}><LogOut size={16}/> Salir</button></div><div className="admin-stats"><div><strong>{adminItems.filter(b=>b.status==='pending').length}</strong><span>Pendientes</span></div><div><strong>{adminItems.filter(b=>b.status==='approved').length}</strong><span>Publicados</span></div><div><strong>{adminItems.filter(b=>b.status==='rejected').length}</strong><span>Rechazados</span></div></div><div className="admin-tabs"><button className={tab==='pending'?'selected':''} onClick={()=>setTab('pending')}>Pendientes</button><button className={tab==='approved'?'selected':''} onClick={()=>setTab('approved')}>Publicados</button><button className={tab==='rejected'?'selected':''} onClick={()=>setTab('rejected')}>Rechazados</button><button className={tab==='new'?'selected':''} onClick={()=>{setForm(empty);setEditing(null);setTab('new')}}><Plus size={16}/> Nuevo / editar</button><button className={tab==='categories'?'selected':''} onClick={()=>setTab('categories')}>Categorías</button>{role==='superadmin'&&<button className={tab==='users'?'selected':''} onClick={()=>setTab('users')}>Administradores</button>}</div>{['pending','approved','rejected'].includes(tab)&&<div className="admin-list">{adminItems.filter(b=>b.status===tab).map(b=><div className="admin-row admin-row-expanded" key={b.id}><img src={privateImages[b.id] || safeUrl(b.image_url) || imageFallback} alt={b.name} onError={e => { e.currentTarget.src = imageFallback; }}/><div className="admin-row-main"><strong>{b.name}</strong><small>{b.category} · {b.city||'Virtual'}</small><small>Responsable: {b.owner_name||'Sin indicar'} · WhatsApp: {b.whatsapp||'Sin indicar'}</small><small>Dirección: {b.address||'Sin indicar'}</small>{b.private_support_request&&<p className="private-data"><Lock size={13}/> Solicitud privada: {b.private_support_request}</p>}</div><div className="admin-actions"><button onClick={()=>edit(b)}>Editar</button>{b.status!=='approved'&&<button className="approve" disabled={loading} onClick={()=>void setStatus(b,'approved')}><Check size={16}/> Aprobar</button>}{b.status!=='pending'&&<button disabled={loading} onClick={()=>void setStatus(b,'pending')}>Pendiente</button>}{b.status!=='rejected'&&<button className="reject" disabled={loading} onClick={()=>void setStatus(b,'rejected')}><X size={16}/> Rechazar</button>}</div></div>)}{!adminItems.some(b=>b.status===tab)&&<div className="empty">No hay negocios en esta sección.</div>}</div>}{tab==='new'&&<div className="registration-panel"><h2>{editing?'Editar negocio':'Crear negocio'}</h2>{businessForm(true)}</div>}{tab==='categories'&&<div className="registration-panel"><h2>Categorías disponibles</h2>
+ 
+ 
+<div className="category-admin-list">
+  {cats.map(c => (
+    <span key={c}>
+      {c}
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => void deleteCategory(c)}
+        title={`Eliminar ${c}`}
+        aria-label={`Eliminar ${c}`}
+      >
+        <Trash2 size={15} />
+      </button>
+    </span>
+  ))}
+</div>
+
+ <label>Nueva categoría<input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Nombre de la categoría"/></label><button className="primary-btn" onClick={()=>void addCategory()}>Agregar categoría</button></div>}{tab==='users'&&role==='superadmin'&&<div className="registration-panel"><h2>Autorizar administradores</h2><p>La persona debe existir previamente en Supabase Authentication. Esta acción solo puede realizarla un superadministrador.</p><label>Correo del usuario<input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)}/></label><label>Rol<select value={inviteRole} onChange={e=>setInviteRole(e.target.value as 'admin'|'superadmin')}><option value="admin">Administrador</option><option value="superadmin">Superadministrador</option></select></label><button className="primary-btn" onClick={()=>void addAdmin()}>Conceder acceso</button></div>}</>}</main>}
  {notice&&<div className="notice" role="status"><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Cerrar aviso"><X size={16}/></button></div>}
  
  

@@ -111,7 +111,10 @@ const uploadImage = async (f: File, admin: boolean) => {
  const submit=async(e:React.FormEvent,admin=false)=>{e.preventDefault();
    
     if(!db){setNotice('Falta configurar Supabase. Consulta el README.');
-        return}if(!form.name.trim()||!form.category||!form.whatsapp.trim()){setNotice('Completa nombre, categoría y WhatsApp.');return}setLoading(true);setNotice('');try{const image_url=file?await uploadImage(file, admin):form.image_url||null;
+        return}if(!form.name.trim()||!form.category||!form.whatsapp.trim()){setNotice('Completa nombre, categoría y WhatsApp.');return}setLoading(true);setNotice('');try{
+            const image_url=file
+            ?await uploadImage(file, admin)
+            :form.image_url||null;
             const values={name:form.name.trim(),category:form.category,city:form.city.trim()||'Virtual',address:form.address.trim()||null,description:form.description.trim()||null,whatsapp:form.whatsapp.trim(),instagram:form.instagram.trim()||null,facebook:form.facebook.trim()||null,website:form.website.trim()||null,owner_name:form.owner_name.trim()||null,private_support_request:form.private_support_request.trim()||null,image_url,
             ...(admin ? { featured: form.featured, status: form.status } : {})};
             
@@ -119,9 +122,77 @@ const uploadImage = async (f: File, admin: boolean) => {
 
 
             const res=admin&&editing?await db.from('businesses').update(values).eq('id',editing):await db.from('businesses').insert(values);if(res.error)throw res.error;setForm(empty);setFile(null);setEditing(null);setNotice(admin?'Cambios guardados correctamente.':'¡Solicitud enviada! Tu emprendimiento quedó pendiente de revisión.');await loadPublic();if(admin){await loadAdmin();setTab(form.status)}}catch(err){setNotice('No se pudo guardar: '+errorText(err))}finally{setLoading(false)}};
- const setStatus=async(b:Business,status:Business['status'])=>{if(!db)return;setLoading(true);
-    const {error}=await db.from('businesses').update({status}).eq('id',b.id);if(error)setNotice(error.message);else{setNotice(`${b.name}: ${status==='approved'?'aprobado':status==='rejected'?'rechazado':'pendiente'}`);await loadAdmin();await loadPublic()}setLoading(false)};
- const edit=(b:Business)=>{setForm({name:b.name||'',category:b.category||'',city:b.city||'',address:b.address||'',description:b.description||'',whatsapp:b.whatsapp||'',instagram:b.instagram||'',facebook:b.facebook||'',website:b.website||'',owner_name:b.owner_name||'',private_support_request:b.private_support_request||'',image_url:b.image_url||'',featured:b.featured,status:b.status});setEditing(b.id);setFile(null);setTab('new');setNotice('')};
+ 
+      
+const setStatus = async (
+  b: Business,
+  status: Business['status']
+) => {
+  if (!db) return;
+
+  setLoading(true);
+  setNotice('');
+
+  try {
+    let image_url = b.image_url;
+
+    if (
+      status === 'approved' &&
+      image_url &&
+      !image_url.startsWith('http')
+    ) {
+      const { data: image, error: downloadError } =
+        await db.storage
+          .from('business-submissions')
+          .download(image_url);
+
+      if (downloadError) throw downloadError;
+
+      const { error: uploadError } =
+        await db.storage
+          .from('business-logos')
+          .upload(image_url, image, {
+            contentType: image.type || 'image/jpeg',
+            upsert: true
+          });
+
+      if (uploadError) throw uploadError;
+
+      image_url = db.storage
+        .from('business-logos')
+        .getPublicUrl(image_url).data.publicUrl;
+    }
+
+    const { error } = await db
+      .from('businesses')
+      .update({ status, image_url })
+      .eq('id', b.id);
+
+    if (error) throw error;
+
+    setNotice(
+      `${b.name}: ${
+        status === 'approved'
+          ? 'aprobado'
+          : status === 'rejected'
+          ? 'rechazado'
+          : 'pendiente'
+      }`
+    );
+
+    await loadAdmin();
+    await loadPublic();
+
+  } catch (err) {
+    setNotice('No se pudo actualizar: ' + errorText(err));
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+
+    const edit=(b:Business)=>{setForm({name:b.name||'',category:b.category||'',city:b.city||'',address:b.address||'',description:b.description||'',whatsapp:b.whatsapp||'',instagram:b.instagram||'',facebook:b.facebook||'',website:b.website||'',owner_name:b.owner_name||'',private_support_request:b.private_support_request||'',image_url:b.image_url||'',featured:b.featured,status:b.status});setEditing(b.id);setFile(null);setTab('new');setNotice('')};
  const login=async(e:React.FormEvent)=>{e.preventDefault();if(!db)return;setLoading(true);
     const {error}=await db.auth.signInWithPassword({email:authEmail,password:authPassword});setLoading(false);setNotice(error?error.message:'Sesión iniciada. Comprobando permisos...')};
  const addCategory=async()=>{if(!db||!newCat.trim())return;
